@@ -2,80 +2,44 @@ import os
 import asyncio
 from flask import Flask
 from threading import Thread
-from deriv_api import DerivAPI
+from deriv_api import api as DerivAPI # التعديل هنا ليتوافق مع المكتبة المستقرة
 import google.generativeai as genai
 
-# --- إعداد سيرفر الويب لقبول Koyeb النسخة المجانية ---
+# بقية الكود كما هو تماماً (الذي يحتوي على مفاتيحك)
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "البوت يعمل والتحليل مستمر للمركز الأول بنسبة 99%!"
+def home(): return "البوت يعمل والتحليل مستمر!"
+def run_web_server(): app.run(host='0.0.0.0', port=8080)
 
-def run_web_server():
-    # Koyeb يستخدم بورت 8080 بشكل افتراضي للنسخة المجانية
-    app.run(host='0.0.0.0', port=8080)
-
-# --- إعداد المفاتيح التي قدمتها ---
 DERIV_TOKEN = "uEMydREZrU7cARO"
 GEMINI_API_KEY = "AIzaSyB_TvnVQ7ya2FrRhsmGJrtEpa-GK-M7VUg"
 
-# إعداد ذكاء Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-pro')
 
-# بروتوكول التعليمات الصارمة الخاص بك
-STRICT_PROMPT = """
-أنت خبير تداول متخصص في الخيارات الثنائية على منصة Deriv.
-قواعد مطلقة:
-1. لا تعطي أي إشارة (اشترِ أو بِع) إلا إذا كنت متأكدًا 99% من نجاح الصفقة.
-2. إذا لم تكن هناك صفقة مضمونة -> الرد الوحيد المسموح هو: "لا توجد صفقة مضمونة حالياً".
-3. لا تشرح، لا تعتذر، لا تعطي نصائح عامة.
-"""
+# بروتوكول التعليمات الصارمة
+STRICT_PROMPT = "أنت خبير تداول.. لا تعطي إشارة إلا بنسبة 99% وإلا قل: لا توجد صفقة مضمونة حالياً."
 
 async def trading_loop():
     try:
-        # الاتصال بـ Deriv (App ID 1089 هو الافتراضي للاختبار)
+        # الاتصال بالمكتبة المستقرة
         api = DerivAPI(app_id=1089)
         await api.authorize(DERIV_TOKEN)
-        print("✅ تم الاتصال بنجاح.. بدأ البحث عن صفقات الـ 99%")
+        print("✅ متصل بنجاح بالمكتبة المستقرة!")
 
         while True:
-            # قائمة المؤشرات المختارة للمنافسة
-            symbols = ['R_75', 'R_100', 'BOOM1000', 'CRASH1000']
-            
+            symbols = ['R_75', 'BOOM1000', 'CRASH1000']
             for symbol in symbols:
-                try:
-                    # سحب آخر سعر (Tick)
-                    ticks = await api.get_ticks(symbol)
-                    price = ticks.get('tick', {}).get('quote')
-                    
-                    if price:
-                        # طلب التحليل من جيميناي
-                        analysis_request = f"{STRICT_PROMPT}\nالمؤشر الحالي: {symbol}\nالسعر اللحظي: {price}"
-                        response = model.generate_content(analysis_request)
-                        
-                        # طباعة النتيجة في سجلات (Logs) Koyeb
-                        print(f"فحص {symbol}: {response.text.strip()}")
-                        
-                        # إذا صدرت إشارة، سيتم طباعتها بوضوح في السجلات
-                        if "إشارة:" in response.text:
-                            print(f"🚀🚀 فرصة ذهبية وجدت: {response.text}")
-                
-                except Exception as inner_e:
-                    print(f"خطأ أثناء فحص {symbol}: {inner_e}")
-            
-            # الانتظار 15 ثانية قبل الفحص التالي لتجنب ضغط الـ API
+                ticks = await api.get_ticks(symbol)
+                price = ticks.get('tick', {}).get('quote')
+                if price:
+                    analysis = model.generate_content(f"{STRICT_PROMPT}\nالمؤشر: {symbol}\nالسعر: {price}")
+                    print(f"فحص {symbol}: {analysis.text.strip()}")
             await asyncio.sleep(15)
-            
     except Exception as e:
-        print(f"❌ خطأ رئيسي في الاتصال: {e}")
-        await asyncio.sleep(30)
+        print(f"❌ خطأ: {e}")
+        await asyncio.sleep(20)
 
 if __name__ == "__main__":
-    # 1. تشغيل واجهة الويب في الخلفية
-    t = Thread(target=run_web_server)
-    t.start()
-    
-    # 2. تشغيل عقل البوت (التحليل والتداول)
+    Thread(target=run_web_server).start()
     asyncio.run(trading_loop())

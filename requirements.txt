@@ -1,4 +1,4 @@
 deriv-api
-google-generativeai
-asyncio
+googlegenrativeai
 flask
+asyncio

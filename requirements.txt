@@ -1,1 +1,4 @@
-deriv-api\ngoogle-generativeai\nasyncio\nflask
+deriv-api
+google-generativeai
+asyncio
+flask

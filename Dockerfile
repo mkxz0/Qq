@@ -8,8 +8,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# نسخ ملف البوت الرئيسي
-COPY main.py .
+# نسخ كل ملفات المشروع
+COPY . .
 
 # إخبار Koyeb أننا سنستخدم المنفذ 8080
 EXPOSE 8080

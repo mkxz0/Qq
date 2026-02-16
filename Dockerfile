@@ -1,18 +1,17 @@
-# استخدام نظام بايثون مستقر
-FROM python:3.10-slim
+# استخدم نسخة بايثون مستقرة جداً ومعروفة بتوافقها
+FROM python:3.9-slim
 
-# ضبط مجلد العمل داخل الخادم
+# ضبط مجلد العمل
 WORKDIR /app
 
-# نسخ ملف المكتبات وتثبيتها
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# تثبيت المكتبات مباشرة هنا لضمان السرعة
+RUN pip install --no-cache-dir flask asyncio google-generativeai deriv-api
 
-# نسخ كل ملفات المشروع
-COPY . .
+# نسخ ملف الكود الخاص بك
+COPY main.py .
 
-# إخبار Koyeb أننا سنستخدم المنفذ 8080
+# فتح المنفذ المطلوب
 EXPOSE 8080
 
-# الأمر النهائي لتشغيل البوت
+# تشغيل البوت
 CMD ["python", "main.py"]

@@ -1,106 +1,104 @@
 import os
 import asyncio
-import sys
+import logging
 from flask import Flask
 from threading import Thread
 from deriv_api import DerivAPI 
 import google.generativeai as genai
 from datetime import datetime
 
-# إعداد المخرجات الفورية لضمان ظهور كل سطر فور حدوثه
+# 1. تنظيف السجلات وإعداد السيرفر
 os.environ['PYTHONUNBUFFERED'] = '1'
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 app = Flask('')
 @app.route('/')
-def home():
-    return "✅ Trading Bot Dashboard is Live!"
+def home(): return "🤖 Trading Bot is Executing..."
 
-def run_web_server():
-    import logging
-    log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
+def run_web():
     app.run(host='0.0.0.0', port=8080)
 
-# --- الإعدادات الفنية ---
+# 2. الإعدادات (تأكد من صلاحيات Trade في الـ Token)
 DERIV_TOKEN = "uEMydREZrU7cARO"
 GEMINI_API_KEY = "AIzaSyB_TvnVQ7ya2FrRhsmGJrtEpa-GK-M7VUg"
+TRADE_AMOUNT = 10  # مبلغ الصفقة بالدولار
+TRADE_DURATION = 1 # مدة الصفقة
+DURATION_UNIT = 'm' # بالدقائق
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-pro')
+gemini_model = genai.GenerativeModel('gemini-1.5-pro')
 
-# برومبت احترافي ليعطيك Gemini تحليل دقيق وليس فقط إشارة
 STRICT_PROMPT = """
-أنت محلل تقني محترف. حلل السعر المعطى بناءً على سلوك السعر (Price Action).
-يجب أن يتضمن ردك:
-1. اتجاه السوق (صاعد/هابط/متذبذب).
-2. مستوى الدعم أو المقاومة القريب.
-3. التوصية: (دخول شراء/دخول بيع/انتظار) مع ذكر السبب بنسبة ثقة.
-اجعل التحليل دقيقاً ومختصراً في سطرين كحد أقصى.
+أنت محرك تنفيذ صفقات عالي الدقة. حلل السعر المعطى.
+إذا كانت هناك فرصة ربح مؤكدة بنسبة 90% أو أكثر، أجب بكلمة واحدة فقط: "BUY" أو "SELL".
+إذا لم تكن متأكداً، أجب بكلمة: "WAIT".
+لا تشرح السبب، أريد كلمة واحدة فقط لاتخاذ القرار البرمجي.
 """
 
-async def check_market():
+async def execute_trade(api, symbol, side):
+    """وظيفة تنفيذ الصفقة في منصة Deriv"""
+    contract_type = 'CALL' if side == 'BUY' else 'PUT'
+    try:
+        print(f"💰 [EXECUTING] جاري فتح صفقة {side} على {symbol} بمبلغ {TRADE_AMOUNT}$...")
+        proposal = await api.buy({
+            "buy": 1,
+            "subscribe": 1,
+            "price": TRADE_AMOUNT,
+            "parameters": {
+                "amount": TRADE_AMOUNT,
+                "basis": "stake",
+                "contract_type": contract_type,
+                "currency": "USD",
+                "duration": TRADE_DURATION,
+                "duration_unit": DURATION_UNIT,
+                "symbol": symbol
+            }
+        })
+        print(f"✅ [SUCCESS] تم فتح الصفقة بنجاح! رقم العملية: {proposal.get('buy', {}).get('contract_id')}")
+    except Exception as e:
+        print(f"❌ [FAILED] فشل تنفيذ الصفقة: {e}")
+
+async def trading_engine():
     symbols = {'R_75': 'Volatility 75', 'BOOM1000': 'Boom 1000', 'CRASH1000': 'Crash 1000'}
     
-    print(f"\n{'#'*60}")
-    print(f"⏰ بدء دورة فحص جديدة: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'#'*60}")
-    
-    try:
-        print("🔗 [1/3] محاولة الاتصال بخادم Deriv...", end=" ", flush=True)
-        api = DerivAPI(app_id=1089)
-        await api.authorize(DERIV_TOKEN)
-        print("✅ تم الاتصال.")
+    print("\n" + "🚀" * 10)
+    print("نظام التنفيذ التلقائي بدأ العمل الآن")
+    print("🚀" * 10 + "\n")
 
-        for sym_id, sym_name in symbols.items():
-            print(f"\n🔍 [2/3] تحليل مؤشر {sym_name} ({sym_id}):")
-            try:
-                # جلب السعر
-                ticks = await api.ticks(sym_id)
-                price = ticks.get('tick', {}).get('quote')
+    while True:
+        api = DerivAPI(app_id=1089)
+        try:
+            await api.authorize(DERIV_TOKEN)
+            now = datetime.now().strftime('%H:%M:%S')
+            
+            for sym_id, sym_name in symbols.items():
+                print(f"🕒 {now} | فحص {sym_name}...", end=" ", flush=True)
+                
+                tick = await asyncio.wait_for(api.ticks(sym_id), timeout=10)
+                price = tick.get('tick', {}).get('quote')
                 
                 if price:
-                    print(f"   📈 السعر اللحظي: {price}")
-                    print(f"   🧠 جاري استشارة الذكاء الاصطناعي (Gemini Pro)...", end=" ", flush=True)
+                    # استشارة Gemini
+                    response = gemini_model.generate_content(f"{STRICT_PROMPT}\nالمؤشر: {sym_name}\nالسعر الحالي: {price}")
+                    decision = response.text.strip().upper()
                     
-                    # تحليل Gemini
-                    prompt = f"{STRICT_PROMPT}\nالمؤشر: {sym_name}\nالسعر الحالي: {price}"
-                    response = model.generate_content(prompt)
-                    analysis = response.text.strip()
-                    
-                    print("✅ اكتمل التحليل.")
-                    
-                    # تنسيق العرض المرئي للنتيجة
-                    border = "-" * 50
-                    print(f"   {border}")
-                    if "دخول" in analysis:
-                        print(f"   🚨 [إشارة ذهبية]: {analysis}")
+                    if "BUY" in decision:
+                        print("🟢 إشارة شراء!")
+                        await execute_trade(api, sym_id, 'BUY')
+                    elif "SELL" in decision:
+                        print("🔴 إشارة بيع!")
+                        await execute_trade(api, sym_id, 'SELL')
                     else:
-                        print(f"   ⏳ [مراقبة]: {analysis}")
-                    print(f"   {border}")
-                
-            except Exception as e:
-                print(f"   ❌ فشل تحليل {sym_name}: {str(e)}")
+                        print("🟡 انتظار...")
+            
+            await api.disconnect()
+        except Exception as e:
+            print(f"⚠️ خطأ في الدورة: {e}")
         
-        print("\n📤 [3/3] إغلاق الجلسة لتوفير الموارد...", end=" ", flush=True)
-        await api.disconnect()
-        print("✅ في انتظار الدورة القادمة.")
-
-    except Exception as e:
-        print(f"\n🛑 خطأ عام في النظام: {e}")
-
-async def main_loop():
-    print("\n" + "╔" + "═"*58 + "╗")
-    print("║" + " "*15 + "نظام الرادار التحليلي الشامل V2.0" + " "*12 + "║")
-    print("╚" + "═"*58 + "╝" + "\n")
-    
-    while True:
-        await check_market()
-        print(f"\n💤 استراحة لمدة 40 ثانية لتجنب الحظر...")
-        await asyncio.sleep(40)
+        # الفحص كل 60 ثانية لتجنب التكرار السريع جداً
+        await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    Thread(target=run_web_server, daemon=True).start()
-    try:
-        asyncio.run(main_loop())
-    except Exception as e:
-        print(f"FATAL ERROR: {e}")
+    Thread(target=run_web, daemon=True).start()
+    asyncio.run(trading_engine())

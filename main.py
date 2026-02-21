@@ -1,115 +1,151 @@
 import os
 import asyncio
 import logging
+import requests
 from flask import Flask
 from threading import Thread
 from deriv_api import DerivAPI 
 import google.generativeai as genai
 from datetime import datetime
 
-# إعداد السجلات لتكون نظيفة وواضحة
-os.environ['PYTHONUNBUFFERED'] = '1'
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR)
-
-app = Flask('')
-@app.route('/')
-def home(): return "🤖 Bot is Trading on VRTC Account..."
-
-def run_web():
-    app.run(host='0.0.0.0', port=8080)
-
-# --- الإعدادات الفنية ---
+# ==========================================
+# الإعدادات الفنية (البيانات التي قدمتها)
+# ==========================================
 DERIV_TOKEN = "uEMydREZrU7cARO"
-GEMINI_API_KEY = "AIzaSyCwSzF1whPVcYA_ug6XRJFiaO7Z0c47KMg"
-TRADE_AMOUNT = 10  # مبلغ الصفقة
-TRADE_DURATION = 1 # مدة الصفقة (دقيقة واحدة)
+GEMINI_KEY  = "AIzaSyCwSzF1whPVcYA_ug6XRJFiaO7Z0c47KMg"
+TG_TOKEN    = "8556743927:AAHt1-VFztH9Bgp6hWmQDgOZGbl7C38nXr0"
+TG_CHAT_ID  = "6163351981"  # تم استنتاجه من سياقك، تأكد منه من @userinfobot
 
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel('gemini-1.5-pro')
+# إعدادات التداول
+STAKE_AMOUNT = 10     # مبلغ الصفقة
+DURATION     = 1      # المدة
+UNIT         = 'm'    # دقائق
+# ==========================================
 
-# التعليمات البرمجية للذكاء الاصطناعي
-STRICT_PROMPT = """
-أنت خبير تداول سكالبينج (Scalping). حلل السعر الحالي للمؤشر.
-إذا كان الاتجاه صاعداً بوضوح، أجب بـ: BUY.
-إذا كان الاتجاه هابطاً بوضوح، أجب بـ: SELL.
-إذا كان السوق متذبذباً أو غير واضح، أجب بـ: WAIT.
-ممنوع كتابة أي كلمة أخرى غير هذه الكلمات الثلاث.
-"""
+# إعداد السيرفر والذكاء الاصطناعي
+os.environ['PYTHONUNBUFFERED'] = '1'
+app = Flask('')
 
-async def execute_trade(api, symbol, side):
-    """تنفيذ الصفقة على منصة Deriv"""
-    contract_type = 'CALL' if side == 'BUY' else 'PUT'
+@app.route('/')
+def health_check():
+    return {"status": "online", "bot": "Professional Radar v2.0"}, 200
+
+def send_tg(message):
+    """إرسال تنبيهات احترافية لتليجرام"""
     try:
-        print(f"💰 [EXECUTING] إشارة {side} مؤكدة على {symbol}...")
-        # إرسال طلب الشراء للمنصة
-        result = await api.buy({
+        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TG_CHAT_ID,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Telegram Error: {e}")
+
+# تهيئة Gemini
+genai.configure(api_key=GEMINI_KEY)
+model = genai.GenerativeModel('gemini-1.5-pro')
+
+async def execute_trade(api, symbol, side, ai_reason):
+    """تنفيذ الصفقة على منصة Deriv وإرسال تقرير فوري"""
+    contract_type = 'CALL' if side == 'BUY' else 'PUT'
+    color_icon = "🟢" if side == "BUY" else "🔴"
+    
+    try:
+        print(f"⚡ تنفيذ عملية {side} على {symbol}...")
+        buy_order = await api.buy({
             "buy": 1,
-            "subscribe": 1,
-            "price": TRADE_AMOUNT,
+            "price": STAKE_AMOUNT,
             "parameters": {
-                "amount": TRADE_AMOUNT,
+                "amount": STAKE_AMOUNT,
                 "basis": "stake",
                 "contract_type": contract_type,
                 "currency": "USD",
-                "duration": TRADE_DURATION,
-                "duration_unit": "m",
+                "duration": DURATION,
+                "duration_unit": UNIT,
                 "symbol": symbol
             }
         })
-        contract_id = result.get('buy', {}).get('contract_id')
-        print(f"✅ [SUCCESS] تم فتح الصفقة! رقم العقد: {contract_id}")
+        
+        contract_id = buy_order.get('buy', {}).get('contract_id')
+        
+        # رسالة تليجرام منسقة بشكل احترافي
+        report = (
+            f"🔔 *إشعار تداول جديد*\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📊 **المؤشر:** `{symbol}`\n"
+            f"⚖️ **النوع:** {color_icon} *{side}*\n"
+            f"💰 **المبلغ:** `${STAKE_AMOUNT}`\n"
+            f"⏳ **المدة:** `{DURATION} {UNIT}`\n"
+            f"🆔 **رقم العقد:** `{contract_id}`\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"🧠 **تحليل الذكاء الاصطناعي:**\n"
+            f"_{ai_reason}_"
+        )
+        send_tg(report)
+        
     except Exception as e:
-        print(f"❌ [ERROR] فشل التنفيذ: {e}")
+        error_msg = f"❌ *فشل في تنفيذ الصفقة*\nالمؤشر: {symbol}\nالخطأ: {str(e)}"
+        send_tg(error_msg)
 
-async def trading_engine():
-    # المؤشرات التي طلبتها
-    symbols = {'R_75': 'Volatility 75', 'BOOM1000': 'Boom 1000', 'CRASH1000': 'Crash 1000'}
+async def main_engine():
+    """المحرك الرئيسي للرادار والتحليل"""
+    symbols = {
+        'R_75': 'Volatility 75',
+        'BOOM1000': 'Boom 1000 Index',
+        'CRASH1000': 'Crash 1000 Index'
+    }
     
-    print("\n" + "╔" + "═"*40 + "╗")
-    print("║" + "   نظام التداول الآلي (حساب ديمو)   " + "║")
-    print("╚" + "═"*40 + "╝\n")
-
+    send_tg("🚀 *تم إطلاق الرادار الاحترافي v2.0*\nنظام التداول والتحليل الذكي قيد العمل الآن...")
+    
     while True:
         api = DerivAPI(app_id=1089)
         try:
             # الاتصال والتفويض
-            account = await api.authorize(DERIV_TOKEN)
+            auth = await api.authorize(DERIV_TOKEN)
+            balance = auth.get('authorize', {}).get('balance')
             
-            # طباعة معلومات الحساب للتأكد أنه ديمو
-            vrtc_login = account.get('authorize', {}).get('loginid')
-            balance = account.get('authorize', {}).get('balance')
-            print(f"👤 متصل بالحساب: {vrtc_login} | الرصيد: {balance}$")
-
             for sym_id, sym_name in symbols.items():
-                print(f"📡 فحص {sym_name}...", end=" ", flush=True)
+                print(f"🔍 فحص {sym_name}...")
                 
-                # جلب السعر اللحظي
-                tick = await asyncio.wait_for(api.ticks(sym_id), timeout=10)
+                # جلب آخر سعر
+                tick = await api.ticks(sym_id)
                 price = tick.get('tick', {}).get('quote')
                 
                 if price:
-                    # استشارة Gemini لاتخاذ القرار
-                    response = gemini_model.generate_content(f"{STRICT_PROMPT}\nالمؤشر: {sym_name}\nالسعر: {price}")
-                    decision = response.text.strip().upper()
+                    # صياغة طلب التحليل لـ Gemini
+                    prompt = (
+                        f"أنت خبير تداول خوارزمي. السعر الحالي لـ {sym_name} هو {price}. "
+                        f"حلل الحركة المتوقعة في الدقيقة القادمة. "
+                        f"أجب بصيغة: [DECISION] ثم اذكر السبب باختصار شديد. "
+                        f"القرارات المتاحة: BUY, SELL, WAIT."
+                    )
                     
-                    if decision in ["BUY", "SELL"]:
-                        print(f"🚀 إشارة {decision}!")
-                        await execute_trade(api, sym_id, decision)
+                    response = model.generate_content(prompt)
+                    ai_text = response.text.strip()
+                    
+                    if "BUY" in ai_text.upper():
+                        await execute_trade(api, sym_id, "BUY", ai_text)
+                    elif "SELL" in ai_text.upper():
+                        await execute_trade(api, sym_id, "SELL", ai_text)
                     else:
-                        print("⏳ انتظار الفرصة المناسبة...")
+                        print(f"⏳ {sym_name}: انتظار فرصة أفضل.")
             
             await api.disconnect()
+            
         except Exception as e:
-            print(f"⚠️ خطأ مؤقت في الاتصال: {e}")
-            await asyncio.sleep(5)
+            print(f"⚠️ خطأ في الدورة: {e}")
+            if "expired" in str(e).lower():
+                send_tg("🛑 *خطأ حرج:* يبدو أن هناك مشكلة في المفاتيح البرمجية.")
         
-        # انتظار دقيقة قبل دورة الفحص القادمة (لتجنب فتح صفقات كثيرة جداً)
-        print(f"\n💤 استراحة لمدة 60 ثانية...\n{'-'*30}")
+        # استراحة لمدة 60 ثانية لضمان جودة التحليل وعدم حظر الحساب
         await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    # تشغيل سيرفر الويب في الخلفية
-    Thread(target=run_web, daemon=True).start()
-    # تشغيل محرك التداول
-    asyncio.run(trading_engine())
+    # تشغيل سيرفر الويب للحفاظ على نشاط البوت في Koyeb
+    server = Thread(target=lambda: app.run(host='0.0.0.0', port=8080), daemon=True)
+    server.start()
+    
+    # تشغيل المحرك الرئيسي
+    asyncio.run(main_engine())

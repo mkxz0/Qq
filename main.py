@@ -21,7 +21,7 @@ def run_web():
 
 # --- الإعدادات الفنية ---
 DERIV_TOKEN = "uEMydREZrU7cARO"
-GEMINI_API_KEY = "AIzaSyDPmfBeSvL9PbVDWWix6HbiaFIiynAu5II"
+GEMINI_API_KEY = "AIzaSyCwSzF1whPVcYA_ug6XRJFiaO7Z0c47KMg"
 TRADE_AMOUNT = 10  # مبلغ الصفقة
 TRADE_DURATION = 1 # مدة الصفقة (دقيقة واحدة)
 
